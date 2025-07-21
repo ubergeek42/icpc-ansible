@@ -587,6 +587,8 @@
       ansible.builtin.shell: >
         set -o pipefail &&
         echo "Provisioned at $(date +"%Y-%m-%d %H:%M:%S")\nRevision: $(git rev-list --full-history --all --abbrev-commit | head -1)\n"
+      args:
+        executable: /bin/bash # needed for pipefail
       become: false
       register: git_revision
       delegate_to: 127.0.0.1
