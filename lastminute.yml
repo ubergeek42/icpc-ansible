@@ -1,4 +1,133 @@
 ---
+- name: SSH CA Certs
+  hosts: all,!contestants
+  gather_facts: false
+  tags: ssh_ca
+  tasks:
+    - name: Ensure the ssh-ca directory exists
+      ansible.builtin.file:
+        path: /root/ssh-ca/{{ item }}
+        state: directory
+        mode: "0700"
+      with_items:
+        - hosts
+        - users
+      delegate_to: backup
+      run_once: true
+    - name: Generate SSH Host+User CAs
+      ansible.builtin.command: ssh-keygen -t ed25519 -f /root/ssh-ca/{{ item }}_ca -C {{ item }}_ca
+      args:
+        creates: /root/ssh-ca/{{ item }}_ca
+      delegate_to: backup
+      run_once: true
+      with_items:
+        - host
+        - user
+
+    - name: Fetch the SSH Host Key for {{ inventory_hostname }}
+      ansible.builtin.fetch:
+        src: /etc/ssh/ssh_host_ed25519_key.pub
+        dest: /root/ssh-ca/hosts/{{inventory_hostname}}.key.pub
+        flat: true
+      register: fetch_ssh_host_key
+    - name: Sign the SSH Host Key for {{ inventory_hostname }}
+      ansible.builtin.command: ssh-keygen -s /root/ssh-ca/host_ca -I "icpc-wf CA" -h -n {{ inventory_hostname }} /root/ssh-ca/hosts/{{ inventory_hostname }}.key.pub
+      args:
+        creates: /root/ssh-ca/hosts/{{ inventory_hostname }}.key-cert.pub
+      delegate_to: backup
+      when: fetch_ssh_host_key is changed
+
+    - name: Copy SSH Host Cert for {{ inventory_hostname }}
+      ansible.builtin.copy:
+        src: /root/ssh-ca/hosts/{{ inventory_hostname }}.key-cert.pub
+        dest: /etc/ssh/{{ inventory_hostname }}.key-cert.pub
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart sshd
+
+    - name: Add the user CA to the TrustedCAKeys file
+      ansible.builtin.copy:
+        src: /root/ssh-ca/user_ca.pub
+        dest: /etc/ssh/TrustedCAKeys
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Update sshd_config to use the host cert
+      ansible.builtin.copy:
+        content: |
+          HostCertificate /etc/ssh/{{ inventory_hostname }}.key-cert.pub
+        dest: /etc/ssh/sshd_config.d/99-host-cert.conf
+      notify: Restart sshd
+
+    - name: Add the host CA to the global known hosts file
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/ssh_known_hosts
+        line: "@cert-authority * {{ lookup('file', '/root/ssh-ca/host_ca.pub') }}"
+        create: yes
+        mode: "0644"
+
+    - name: Create+Sign icpc user ssh key/certificate
+      when: inventory_hostname in groups['servers']
+      block:
+      - name: Update sshd_config to trust the user CA
+        ansible.builtin.copy:
+          content: |
+            TrustedUserCAKeys /etc/ssh/TrustedCAKeys
+            AuthorizedPrincipalsFile .ssh/authorized_principals
+          dest: /etc/ssh/sshd_config.d/99-user-ca.conf
+        notify: Restart sshd
+
+      # Every host gets an icpc@hostname ssh certificate, and hosts allow those keys to log in by adding the names to
+      # ~/.ssh/authorized_principals. E.g. if you add icpc@cds to the file, then the icpc user on the cds has a key that will allow it to log in.
+      # A more practical example might be for the ccsadmins to all be allowed to log into the ccs server, or judgehosts, etc. So they don't have
+      # to distribute their own keys to every machine manually.
+      - name: Make sure the .ssh directory exists
+        ansible.builtin.file:
+          path: /home/icpc/.ssh
+          state: directory
+          mode: "0700"
+          owner: icpc
+          group: icpc
+      - name: Ensure id_ed25519 key for icpc@icpc
+        community.crypto.openssh_keypair:
+          path: /home/icpc/.ssh/id_ed25519
+          type: ed25519
+          owner: icpc
+          group: icpc
+      - name: Copy icpc pubkey to backup
+        ansible.builtin.fetch:
+          src: /home/icpc/.ssh/id_ed25519.pub
+          dest: /root/ssh-ca/users/icpc_{{ inventory_hostname }}_id_ed25519.pub
+          flat: true
+        register: fetch_icpc_pubkey
+      - name: Sign the icpc pubkey
+        ansible.builtin.command:
+          cmd: >
+            ssh-keygen
+            -s /root/ssh-ca/user_ca
+            -I icpc@{{inventory_hostname}}
+            -n icpc@{{ inventory_hostname }}
+            -O source-address="{{ ansible_default_ipv4.address }}/32"
+            /root/ssh-ca/users/icpc_{{ inventory_hostname }}_id_ed25519.pub
+        args:
+          chdir: /root/ssh-ca/users
+        when: fetch_icpc_pubkey is changed
+        delegate_to: backup
+      - name: Copy signed icpc pubkey to icpc
+        ansible.builtin.copy:
+          src: /root/ssh-ca/users/icpc_{{ inventory_hostname }}_id_ed25519-cert.pub
+          dest: /home/icpc/.ssh/id_ed25519-cert.pub
+          owner: icpc
+          group: icpc
+
+  handlers:
+    - name: Restart sshd
+      ansible.builtin.systemd:
+        name: sshd
+        state: restarted
+
 - name: Trust packages ssl cert
   hosts: all
   tasks:
