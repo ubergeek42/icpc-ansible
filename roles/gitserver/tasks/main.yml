@@ -57,6 +57,23 @@
     group: git
     mode: "0600"
 
+- name: Set up some allowed_principals for git user
+  ansible.builtin.copy:
+    content: |
+      cds@cds
+      icpc@cds
+      icpc@backup
+      icpc@packages
+      icpc@printsrv
+      icpc@domjudge-1
+      icpc@domjudge-2
+      icpc@pc2
+      icpc@pc2backup
+    dest: "{{ git_home_dir }}/.ssh/allowed_principals"
+    owner: git
+    group: git
+    mode: "0600"
+
 - name: Make git user hushlogin
   ansible.builtin.file:
     path: "{{ git_home_dir }}/.hushlogin"
