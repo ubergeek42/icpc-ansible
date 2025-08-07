@@ -28,6 +28,25 @@
     owner: cds
     group: cds
 
+- name: Copy cds pubkey to backup
+  ansible.builtin.fetch:
+    src: /srv/cds/.ssh/id_ed25519.pub
+    dest: /root/ssh-ca/users/cds_id_ed25519.pub
+    flat: true
+- name: Sign the cds pubkey
+  ansible.builtin.command:
+    cmd: ssh-keygen -s /root/ssh-ca/user_ca -I cds@cds -n cds@cds /root/ssh-ca/users/cds_id_ed25519.pub
+  args:
+    chdir: /root/ssh-ca/users
+  register: sign_cds_pubkey
+  delegate_to: backup
+- name: Copy signed cds pubkey to cds
+  ansible.builtin.copy:
+    src: /root/ssh-ca/users/cds_id_ed25519-cert.pub
+    dest: /srv/cds/.ssh/id_ed25519-cert.pub
+    owner: cds
+    group: cds
+
 - name: Disable strict host key checking for the cds user
   ansible.builtin.copy:
     content: |
