@@ -18,7 +18,7 @@ install_cache(
         '*': DO_NOT_CACHE,  # Don't cache anything other than GitHub requests
     },
     backend='filesystem',
-    cache_name='/tmp/github_cache'
+    cache_name='/root/ansible/.github_release_cache'
 )
 
 class ActionModule(ActionBase):
