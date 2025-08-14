@@ -1,7 +1,7 @@
 ---
 - name: SSH CA Certs
   hosts: all,!contestants
-  gather_facts: false
+  gather_facts: true
   tags: ssh_ca
   tasks:
     - name: Ensure the ssh-ca directory exists
@@ -109,7 +109,7 @@
             -s /root/ssh-ca/user_ca
             -I icpc@{{inventory_hostname}}
             -n icpc@{{ inventory_hostname }}
-            -O source-address="{{ ansible_default_ipv4.address }}/32"
+            -O source-address="{% for ip in ansible_all_ipv4_addresses %}{{ ip }}/32{% if not loop.last %},{% endif %}{% endfor %}"
             /root/ssh-ca/users/icpc_{{ inventory_hostname }}_id_ed25519.pub
         args:
           chdir: /root/ssh-ca/users
